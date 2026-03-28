@@ -37,6 +37,7 @@ app.get('/health', (req, res) => {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth',  require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
+app.use('/api/edt', require('./routes/edt.routes'));
 
 // (Ajouter les autres routes ici au fur et à mesure)
 // app.use('/api/etudiants',   require('./routes/etudiant.routes'));
