@@ -76,7 +76,7 @@ async function sendValidationEmail(destinataire, prenom) {
     <p>Bonjour <strong>${prenom}</strong>,</p>
     <p>Votre compte a ete valide par l'administrateur.</p>
     <p>Vous pouvez maintenant acceder a votre espace :</p>
-    <a href="${process.env.FRONTEND_URL}/login" class="btn" style="background:#34a853">
+    <a href="${process.env.FRONTEND_URL}/auth" class="btn" style="background:#34a853">
       Se connecter
     </a>
   `);

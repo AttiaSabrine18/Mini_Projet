@@ -14,6 +14,12 @@ router.get('/sessions/aujourd-hui',
   ctrl.getSessionsAujourdhui
 );
 
+// 1b. Historique de l'étudiant connecté (auto-détection via token)
+router.get('/mon-historique',
+  authentifier, autoriser('ETUDIANT'),
+  ctrl.getMonHistorique
+);
+
 // 2. Séances sans présences (admin détecte profs absents)
 router.get('/admin/seances-sans-presence',
   authentifier, autoriser('ADMINISTRATEUR'),

@@ -1,40 +1,64 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, Users, BookOpen, GraduationCap, TrendingUp } from "lucide-react";
-import { motion } from "framer-motion";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { BarChart3, Users, BookOpen, GraduationCap, TrendingUp } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import { apiCall } from '@/lib/api';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from 'recharts';
 
-const COLORS = ["hsl(152, 32%, 36%)", "hsl(28, 80%, 56%)", "hsl(200, 50%, 50%)", "hsl(340, 60%, 55%)"];
-
-// Mock stats data
-const MOCK_STATS = {
-  students: 42,
-  teachers: 8,
-  courses: 15,
-  filieres: 5,
-  pending: 3,
-};
+const COLORS = ['hsl(152, 32%, 36%)', 'hsl(28, 80%, 56%)', 'hsl(200, 50%, 50%)', 'hsl(340, 60%, 55%)'];
 
 export default function StatsPage() {
-  const [stats] = useState(MOCK_STATS);
+  const [stats,   setStats]   = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const roleData = [
-    { name: "Étudiants", value: stats.students },
-    { name: "Enseignants", value: stats.teachers },
+  useEffect(() => { loadStats(); }, []);
+
+  const loadStats = async () => {
+    setLoading(true);
+    try {
+      // GET /admin/statistiques
+      const res = await apiCall('/admin/statistiques');
+      setStats(res.data);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    </div>
+  );
+
+  const etudiants   = stats?.totalEtudiants   ?? stats?.etudiants   ?? 0;
+  const enseignants = stats?.totalEnseignants ?? stats?.enseignants ?? 0;
+  const cours       = stats?.totalCours       ?? stats?.cours       ?? 0;
+  const filieres    = stats?.totalFilieres    ?? stats?.filieres    ?? 0;
+  const pending     = stats?.demandesEnAttente ?? stats?.pending     ?? 0;
+
+  const statCards = [
+    { label: 'Étudiants',   value: etudiants,   icon: GraduationCap, color: 'bg-primary/10 text-primary'     },
+    { label: 'Enseignants', value: enseignants, icon: BookOpen,      color: 'bg-accent/10 text-accent'       },
+    { label: 'Cours',       value: cours,       icon: BookOpen,      color: 'bg-chart-4/10 text-chart-4'     },
+    { label: 'En attente',  value: pending,     icon: TrendingUp,    color: 'bg-chart-5/10 text-chart-5'     },
   ];
 
   const barData = [
-    { name: "Étudiants", count: stats.students },
-    { name: "Enseignants", count: stats.teachers },
-    { name: "Cours", count: stats.courses },
-    { name: "Filières", count: stats.filieres },
+    { name: 'Étudiants',   count: etudiants   },
+    { name: 'Enseignants', count: enseignants },
+    { name: 'Cours',       count: cours       },
+    { name: 'Filières',    count: filieres    },
   ];
 
-  const statCards = [
-    { label: "Étudiants", value: stats.students, icon: GraduationCap, color: "bg-primary/10 text-primary" },
-    { label: "Enseignants", value: stats.teachers, icon: BookOpen, color: "bg-accent/10 text-accent" },
-    { label: "Cours", value: stats.courses, icon: BookOpen, color: "bg-chart-4/10 text-chart-4" },
-    { label: "En attente", value: stats.pending, icon: TrendingUp, color: "bg-chart-5/10 text-chart-5" },
+  const roleData = [
+    { name: 'Étudiants',   value: etudiants   },
+    { name: 'Enseignants', value: enseignants },
   ];
 
   return (
@@ -50,12 +74,7 @@ export default function StatsPage() {
         {statCards.map((stat, i) => {
           const Icon = stat.icon;
           return (
-            <motion.div 
-              key={stat.label} 
-              initial={{ opacity: 0, y: 12 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: i * 0.1 }}
-            >
+            <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
               <Card className="shadow-card border-0">
                 <CardContent className="p-5 flex items-center justify-between">
                   <div>
@@ -101,13 +120,11 @@ export default function StatsPage() {
           <CardContent className="flex items-center justify-center">
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie 
-                  data={roleData} 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={60} 
-                  outerRadius={90} 
-                  dataKey="value" 
+                <Pie
+                  data={roleData}
+                  cx="50%" cy="50%"
+                  innerRadius={60} outerRadius={90}
+                  dataKey="value"
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
                   {roleData.map((_, i) => (

@@ -1,51 +1,86 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Settings, User, Lock, Save } from "lucide-react";
-import { motion } from "framer-motion";
-import { toast } from "sonner";
-
-// Mock user profile
-const MOCK_PROFILE = {
-  first_name: "Jean",
-  last_name: "Dupont",
-  email: "jean.dupont@example.com",
-};
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Settings, User, Lock, Save } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import { apiCall } from '@/lib/api';
 
 export default function SettingsPage() {
-  const [firstName, setFirstName] = useState(MOCK_PROFILE.first_name);
-  const [lastName, setLastName] = useState(MOCK_PROFILE.last_name);
-  const [phone, setPhone] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [prenom,      setPrenom]      = useState('');
+  const [nom,         setNom]         = useState('');
+  const [email,       setEmail]       = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
-  const [newPw, setNewPw] = useState("");
-  const [changingPw, setChangingPw] = useState(false);
+  const [ancienPw,    setAncienPw]    = useState('');
+  const [newPw,       setNewPw]       = useState('');
+  const [changingPw,  setChangingPw]  = useState(false);
 
-  const handleSaveProfile = () => {
-    setSaving(true);
-    // Simulate API call
-    setTimeout(() => {
-      toast.success("Profil mis à jour ✅");
-      setSaving(false);
-    }, 500);
-  };
+  useEffect(() => { loadProfil(); }, []);
 
-  const handleChangePassword = () => {
-    if (!newPw) {
-      toast.error("Veuillez entrer un nouveau mot de passe");
-      return;
+  const loadProfil = async () => {
+    setLoadingProfile(true);
+    try {
+      // GET /auth/me
+      const res = await apiCall('/auth/me');
+      const u = res.data;
+      setPrenom(u.prenom ?? '');
+      setNom(u.nom ?? '');
+      setEmail(u.email ?? '');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoadingProfile(false);
     }
-    
-    setChangingPw(true);
-    // Simulate API call
-    setTimeout(() => {
-      toast.success("Mot de passe changé ✅");
-      setNewPw("");
-      setChangingPw(false);
-    }, 500);
   };
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    try {
+      // PUT /auth/profil  (ou PATCH selon ton backend — adapte si besoin)
+      await apiCall('/auth/profil', {
+        method: 'PUT',
+        body: JSON.stringify({ prenom, nom }),
+      });
+      // Mettre à jour le localStorage aussi
+      const stored = JSON.parse(localStorage.getItem('utilisateur') || '{}');
+      localStorage.setItem('utilisateur', JSON.stringify({ ...stored, prenom, nom }));
+      toast.success('Profil mis à jour ✅');
+    } catch (err: any) {
+      // Si l'endpoint n'existe pas encore, on informe sans casser
+      toast.error(err.message || 'Endpoint non disponible');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPw) { toast.error('Veuillez entrer un nouveau mot de passe'); return; }
+    setChangingPw(true);
+    try {
+      // POST /auth/reinitialiser-mot-de-passe ou changer-mot-de-passe
+      await apiCall('/auth/changer-mot-de-passe', {
+        method: 'POST',
+        body: JSON.stringify({ ancienMotDePasse: ancienPw, nouveauMotDePasse: newPw }),
+      });
+      toast.success('Mot de passe changé ✅');
+      setAncienPw('');
+      setNewPw('');
+    } catch (err: any) {
+      toast.error(err.message || 'Erreur lors du changement');
+    } finally {
+      setChangingPw(false);
+    }
+  };
+
+  if (loadingProfile) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    </div>
+  );
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -67,19 +102,19 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Prénom</Label>
-                <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                <Input value={prenom} onChange={(e) => setPrenom(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Nom</Label>
-                <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                <Input value={nom} onChange={(e) => setNom(e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input value={MOCK_PROFILE.email} disabled className="bg-muted" />
+              <Input value={email} disabled className="bg-muted" />
             </div>
             <Button onClick={handleSaveProfile} disabled={saving} className="gap-1">
-              <Save className="h-4 w-4" /> {saving ? "Sauvegarde..." : "Enregistrer"}
+              <Save className="h-4 w-4" /> {saving ? 'Sauvegarde...' : 'Enregistrer'}
             </Button>
           </CardContent>
         </Card>
@@ -94,21 +129,30 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Nouveau mot de passe</Label>
-              <Input 
-                type="password" 
-                value={newPw} 
-                onChange={(e) => setNewPw(e.target.value)} 
-                placeholder="••••••••" 
+              <Label>Mot de passe actuel</Label>
+              <Input
+                type="password"
+                value={ancienPw}
+                onChange={(e) => setAncienPw(e.target.value)}
+                placeholder="••••••••"
               />
             </div>
-            <Button 
-              onClick={handleChangePassword} 
-              disabled={changingPw || !newPw} 
-              variant="outline" 
+            <div className="space-y-2">
+              <Label>Nouveau mot de passe</Label>
+              <Input
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                placeholder="Min. 6 caractères"
+              />
+            </div>
+            <Button
+              onClick={handleChangePassword}
+              disabled={changingPw || !newPw}
+              variant="outline"
               className="gap-1"
             >
-              <Lock className="h-4 w-4" /> {changingPw ? "Changement..." : "Changer"}
+              <Lock className="h-4 w-4" /> {changingPw ? 'Changement...' : 'Changer'}
             </Button>
           </CardContent>
         </Card>

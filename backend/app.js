@@ -38,7 +38,11 @@ app.get('/health', (req, res) => {
 app.use('/api/auth',  require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/edt', require('./routes/edt.routes'));
+
 app.use('/api/forum', require('./routes/forum.routes'));
+
+
+app.use('/api/presences', require('./routes/presenceRoutes')); 
 
 // (Ajouter les autres routes ici au fur et à mesure)
 // app.use('/api/etudiants',   require('./routes/etudiant.routes'));

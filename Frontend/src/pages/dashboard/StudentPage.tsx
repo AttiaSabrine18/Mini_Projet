@@ -1,24 +1,40 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Users, Search, GraduationCap, Mail } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-
-const students = [
-  { id: "1", first_name: "Ahmed", last_name: "Benali", email: "ahmed.benali@email.com" },
-  { id: "2", first_name: "Sara", last_name: "Mansouri", email: "sara.mansouri@email.com" },
-  { id: "3", first_name: "Karim", last_name: "Ladjali", email: "karim.ladjali@email.com" },
-  { id: "4", first_name: "Fatima", last_name: "Zahra", email: "fatima.zahra@email.com" },
-  { id: "5", first_name: "Youssef", last_name: "Amrani", email: "youssef.amrani@email.com" },
-  { id: "6", first_name: "Nadia", last_name: "Boukhalfa", email: "nadia.boukhalfa@email.com" },
-];
+import { useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Users, Search, Mail } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+import { apiCall } from '@/lib/api';
 
 export default function StudentsPage() {
-  const [search, setSearch] = useState("");
+  const [students, setStudents] = useState<any[]>([]);
+  const [search,   setSearch]   = useState('');
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => { loadStudents(); }, []);
+
+  const loadStudents = async () => {
+    setLoading(true);
+    try {
+      // GET /admin/comptes?type=ETUDIANT&limit=200
+      const data = await apiCall('/admin/comptes?type=ETUDIANT&limit=200');
+      setStudents(data.data?.utilisateurs ?? data.data?.comptes ?? []);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = students.filter((s) =>
-    `${s.first_name} ${s.last_name}`.toLowerCase().includes(search.toLowerCase())
+    `${s.prenom} ${s.nom} ${s.email}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    </div>
   );
 
   return (
@@ -27,12 +43,17 @@ export default function StudentsPage() {
         <h1 className="font-display text-2xl font-bold flex items-center gap-2">
           <Users className="h-6 w-6 text-primary" /> Étudiants
         </h1>
-        <p className="text-muted-foreground">{filtered.length} étudiants inscrits</p>
+        <p className="text-muted-foreground">{students.length} étudiants inscrits</p>
       </motion.div>
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Rechercher un étudiant..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        <Input
+          placeholder="Rechercher un étudiant..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-10"
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -49,14 +70,17 @@ export default function StudentsPage() {
               <Card className="shadow-card border-0 hover:shadow-elevated transition-shadow">
                 <CardContent className="p-4 flex items-center gap-4">
                   <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                    {student.first_name[0]}{student.last_name[0]}
+                    {student.prenom?.[0]}{student.nom?.[0]}
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{student.first_name} {student.last_name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm truncate">{student.prenom} {student.nom}</p>
                     <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
                       <Mail className="h-3 w-3 shrink-0" /> {student.email}
                     </p>
                   </div>
+                  <Badge variant={student.statut === 'ACTIF' ? 'default' : 'secondary'} className="text-xs shrink-0">
+                    {student.statut}
+                  </Badge>
                 </CardContent>
               </Card>
             </motion.div>

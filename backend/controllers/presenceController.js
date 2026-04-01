@@ -1,6 +1,7 @@
 'use strict';
 
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
+
 const {
   Presence, Etudiant, Session, Enseignant,
   Utilisateur, Cours, Inscription
@@ -12,19 +13,30 @@ async function getEnseignant(userId) {
   return Enseignant.findOne({ where: { utilisateurId: userId } });
 }
 
+function dateLocale() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const dd   = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  1. GET /presences/sessions/aujourd-hui
-//     Enseignant voit toutes ses séances du jour
 // ═════════════════════════════════════════════════════════════════════════════
 async function getSessionsAujourdhui(req, res) {
   try {
     const enseignant = await getEnseignant(req.utilisateur.id);
     if (!enseignant) return error(res, 'Profil enseignant introuvable.', 403);
 
-    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const aujourdhui = dateLocale();
 
     const sessions = await Session.findAll({
-      where:   { enseignantId: enseignant.id, date: aujourdhui },
+      where: {
+        enseignantId: enseignant.id,
+        estAnnulee:   false,
+        [Op.and]:     literal(`DATE(\`Session\`.\`date\`) = '${aujourdhui}'`),
+      },
       include: [{ model: Cours, as: 'cours', attributes: ['id', 'nom', 'code'] }],
       order:   [['heureDebut', 'ASC']],
     });
@@ -37,8 +49,8 @@ async function getSessionsAujourdhui(req, res) {
         stats: {
           presencesMarquees: totalMarques,
           presents,
-          absents:          totalMarques - presents,
-          presenceComplete: totalMarques > 0,
+          absents:           totalMarques - presents,
+          presenceComplete:  totalMarques > 0,
         },
       };
     }));
@@ -52,8 +64,48 @@ async function getSessionsAujourdhui(req, res) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  1b. GET /presences/sessions?date=YYYY-MM-DD
+// ═════════════════════════════════════════════════════════════════════════════
+async function getSessionsParDate(req, res) {
+  try {
+    const enseignant = await getEnseignant(req.utilisateur.id);
+    if (!enseignant) return error(res, 'Profil enseignant introuvable.', 403);
+
+    const date = req.query.date || dateLocale();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return error(res, 'Format de date invalide. Utilisez YYYY-MM-DD.', 400);
+
+    const sessions = await Session.findAll({
+      where: {
+        enseignantId: enseignant.id,
+        [Op.and]:     literal(`DATE(\`Session\`.\`date\`) = '${date}'`),
+      },
+      include: [{ model: Cours, as: 'cours', attributes: ['id', 'nom', 'code'] }],
+      order:   [['heureDebut', 'ASC']],
+    });
+
+    const sessionsAvecStats = await Promise.all(sessions.map(async (s) => {
+      const totalMarques = await Presence.count({ where: { sessionId: s.id } });
+      const presents     = await Presence.count({ where: { sessionId: s.id, estPresent: true } });
+      return {
+        ...s.toJSON(),
+        stats: {
+          presencesMarquees: totalMarques,
+          presents,
+          absents:           totalMarques - presents,
+          presenceComplete:  totalMarques > 0,
+        },
+      };
+    }));
+
+    return success(res, { date, total: sessions.length, sessions: sessionsAvecStats }, 'Séances récupérées.');
+  } catch (err) {
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  2. GET /presences/sessions/:id/etudiants
-//     Liste étudiants d'une séance avec statut présence déjà marquée ou pas
 // ═════════════════════════════════════════════════════════════════════════════
 async function getEtudiantsDuneSeance(req, res) {
   try {
@@ -63,11 +115,13 @@ async function getEtudiantsDuneSeance(req, res) {
       include: [{ model: Cours, as: 'cours', attributes: ['id', 'nom', 'code'] }],
     });
     if (!session) return error(res, 'Séance introuvable.', 404);
+const whereEtudiant = session.groupe ? { groupe: session.groupe } : {};
 
     const inscriptions = await Inscription.findAll({
       where: { coursId: session.coursId },
       include: [{
         model: Etudiant, as: 'etudiant',
+        where: whereEtudiant,
         include: [{ model: Utilisateur, as: 'utilisateur', attributes: ['nom', 'prenom', 'email'] }],
         attributes: ['id', 'numeroEtudiant', 'groupe', 'niveau'],
       }],
@@ -100,8 +154,7 @@ async function getEtudiantsDuneSeance(req, res) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  3. POST /presences
-//     Marquer UN étudiant présent/absent
+//  3. POST /presences  — marquer UN étudiant
 // ═════════════════════════════════════════════════════════════════════════════
 async function marquerPresence(req, res) {
   try {
@@ -135,8 +188,7 @@ async function marquerPresence(req, res) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  4. POST /presences/bulk
-//     Marquer TOUTE la classe en une seule requête
+//  4. POST /presences/bulk  — marquer TOUTE la classe
 // ═════════════════════════════════════════════════════════════════════════════
 async function marquerPresenceBulk(req, res) {
   try {
@@ -183,13 +235,11 @@ async function marquerPresenceBulk(req, res) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  5. PATCH /presences/sessions/:id/statut
-//     Prof annule sa séance (absent) / Admin annule / reporter
-//     Body: { statut: 'ANNULEE' | 'REPORTEE' | 'ACTIVE' }
 // ═════════════════════════════════════════════════════════════════════════════
 async function changerStatutSession(req, res) {
   try {
     const sessionId = parseInt(req.params.id);
-    const { statut, motif } = req.body;
+    const { statut } = req.body;
 
     const statutsValides = ['ANNULEE', 'REPORTEE', 'ACTIVE'];
     if (!statut || !statutsValides.includes(statut.toUpperCase()))
@@ -204,16 +254,10 @@ async function changerStatutSession(req, res) {
         return error(res, 'Vous ne pouvez modifier que vos propres séances.', 403);
     }
 
-    // La table sessions utilise estAnnulee (boolean) pas statut
-    const estAnnulee = statut.toUpperCase() === 'ANNULEE' || statut.toUpperCase() === 'REPORTEE';
+    const estAnnulee = ['ANNULEE', 'REPORTEE'].includes(statut.toUpperCase());
     await session.update({ estAnnulee });
 
-    const messages = {
-      ANNULEE:  '📢 Séance annulée.',
-      REPORTEE: '📅 Séance reportée.',
-      ACTIVE:   '✅ Séance réactivée.',
-    };
-
+    const messages = { ANNULEE: '📢 Séance annulée.', REPORTEE: '📅 Séance reportée.', ACTIVE: '✅ Séance réactivée.' };
     return success(res, session, messages[statut.toUpperCase()] || 'Statut mis à jour.');
   } catch (err) {
     return error(res, err.message || 'Erreur.', 500);
@@ -222,12 +266,10 @@ async function changerStatutSession(req, res) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  6. GET /presences/seance/:id
-//     Liste complète présences d'une séance avec stats
 // ═════════════════════════════════════════════════════════════════════════════
 async function getPresencesSeance(req, res) {
   try {
     const sessionId = parseInt(req.params.id);
-
     const session = await Session.findByPk(sessionId, {
       include: [{ model: Cours, as: 'cours', attributes: ['id', 'nom'] }],
     });
@@ -240,18 +282,16 @@ async function getPresencesSeance(req, res) {
         include: [{ model: Utilisateur, as: 'utilisateur', attributes: ['nom', 'prenom', 'email'] }],
         attributes: ['id', 'numeroEtudiant', 'groupe'],
       }],
-      order: [[{ model: Etudiant, as: 'etudiant' },
-               { model: Utilisateur, as: 'utilisateur' }, 'nom', 'ASC']],
+      order: [[{ model: Etudiant, as: 'etudiant' }, { model: Utilisateur, as: 'utilisateur' }, 'nom', 'ASC']],
     });
 
     const total    = presences.length;
     const presents = presences.filter(p => p.estPresent).length;
-    const absents  = total - presents;
     const taux     = total > 0 ? Math.round((presents / total) * 100) : 0;
 
     return success(res, {
       seance:       session,
-      statistiques: { total, presents, absents, tauxPresence: `${taux}%` },
+      statistiques: { total, presents, absents: total - presents, tauxPresence: `${taux}%` },
       presences,
     }, 'Liste de présence récupérée.');
   } catch (err) {
@@ -261,7 +301,6 @@ async function getPresencesSeance(req, res) {
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  7. GET /presences/:etudiantId
-//     Historique absences d'un étudiant avec stats
 // ═════════════════════════════════════════════════════════════════════════════
 async function getHistoriqueEtudiant(req, res) {
   try {
@@ -270,7 +309,7 @@ async function getHistoriqueEtudiant(req, res) {
     if (req.utilisateur.typeUtilisateur === 'ETUDIANT') {
       const etudiant = await Etudiant.findOne({ where: { utilisateurId: req.utilisateur.id } });
       if (!etudiant || etudiant.id !== etudiantId)
-        return error(res, 'Accès refusé. Vous ne pouvez voir que votre propre historique.', 403);
+        return error(res, 'Accès refusé.', 403);
     }
 
     const presences = await Presence.findAll({
@@ -292,11 +331,10 @@ async function getHistoriqueEtudiant(req, res) {
 
     const total    = presences.length;
     const presents = presences.filter(p => p.estPresent).length;
-    const absents  = total - presents;
     const taux     = total > 0 ? Math.round((presents / total) * 100) : 0;
 
     return success(res, {
-      statistiques: { total, presents, absents, tauxPresence: `${taux}%` },
+      statistiques: { total, presents, absents: total - presents, tauxPresence: `${taux}%` },
       historique:   presences,
     }, 'Historique récupéré.');
   } catch (err) {
@@ -305,17 +343,30 @@ async function getHistoriqueEtudiant(req, res) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  7b. GET /presences/mon-historique
+// ═════════════════════════════════════════════════════════════════════════════
+async function getMonHistorique(req, res) {
+  try {
+    const etudiant = await Etudiant.findOne({ where: { utilisateurId: req.utilisateur.id } });
+    if (!etudiant) return error(res, 'Profil étudiant introuvable.', 404);
+    req.params.etudiantId = etudiant.id;
+    return getHistoriqueEtudiant(req, res);
+  } catch (err) {
+    return error(res, err.message, 500);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  8. GET /presences/admin/seances-sans-presence
-//     Admin détecte séances passées sans présences = prof absent sans prévenir
 // ═════════════════════════════════════════════════════════════════════════════
 async function getSeancesSansPresence(req, res) {
   try {
-    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const aujourdhui = dateLocale();
 
     const sessions = await Session.findAll({
       where: {
-        date:       { [Op.lt]: aujourdhui },
         estAnnulee: false,
+        [Op.and]:   literal(`DATE(\`Session\`.\`date\`) < '${aujourdhui}'`),
       },
       include: [
         { model: Cours, as: 'cours', attributes: ['id', 'nom', 'code'] },
@@ -342,13 +393,16 @@ async function getSeancesSansPresence(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
   getSessionsAujourdhui,
+  getSessionsParDate,
   getEtudiantsDuneSeance,
   marquerPresence,
   marquerPresenceBulk,
   changerStatutSession,
   getPresencesSeance,
   getHistoriqueEtudiant,
+  getMonHistorique,
   getSeancesSansPresence,
 };

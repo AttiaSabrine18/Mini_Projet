@@ -177,6 +177,7 @@ async function getGroupesEtudiant(utilisateurId) {
 
   return {
     etudiant: {
+      id:             etudiant.id,
       niveau:         etudiant.niveau,
       groupe:         etudiant.groupe,
       sousGroupe:     etudiant.sousGroupe,
@@ -184,6 +185,7 @@ async function getGroupesEtudiant(utilisateurId) {
       filiere:        etudiant.filiere?.nom,
     },
     sessions: sessions.length,
+    etudiantId: etudiant.id,
     groupeInfo: sessions,
   };
 }
