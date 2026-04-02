@@ -38,6 +38,9 @@ app.get('/health', (req, res) => {
 app.use('/api/auth',  require('./routes/auth.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/edt', require('./routes/edt.routes'));
+app.use('/api/documents', require('./routes/documentRoutes'));
+
+
 
 app.use('/api/forum', require('./routes/forum.routes'));
 
