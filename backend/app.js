@@ -13,7 +13,7 @@ app.use(helmet());
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use(cors({
-  origin:      process.env.FRONTEND_URL || 'http://localhost:5000',
+  origin:'http://localhost:8081',
   credentials: true,   // Important pour les cookies (refresh token)
   methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
