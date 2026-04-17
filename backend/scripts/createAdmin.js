@@ -12,7 +12,7 @@ async function main() {
     await db.sequelize.sync({ alter: true });
     console.log('Tables synchronisées');
   
-    const email = 'attiasabrine450@gmail.com';
+    const email = 'drirasalma15@gmail.com';
 
     // Vérifier si l'admin existe déjà
     const existant = await db.Utilisateur.findOne({ where: { email } });
@@ -31,8 +31,8 @@ async function main() {
         email,
         motDePasse:      motDePasseH,
         sel,
-        nom:             'Attia',
-        prenom:          'Sabrine',
+        nom:             'Drira',
+        prenom:          'Salma',
         typeUtilisateur: 'ADMINISTRATEUR',
         statut:          'ACTIF',
         valideEmail:     true,

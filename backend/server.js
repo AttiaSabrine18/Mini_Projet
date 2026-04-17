@@ -25,7 +25,7 @@ async function demarrerServeur() {
     });
 
   } catch (err) {
-    console.error(' Impossible de démarrer le serveur :', err.message);
+    console.error(' Impossible de démarrer le serveur :', err);
     process.exit(1);
   }
 }

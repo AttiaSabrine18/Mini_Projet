@@ -2,12 +2,13 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, BookOpen, MessageSquare, Users,
   Settings, LogOut, GraduationCap, ClipboardList, FolderOpen,
-  BarChart3, Building2, UserCheck, BookUser, Shield,
+  BarChart3, Building2, UserCheck, BookUser, Shield, Newspaper,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
 const studentLinks = [
   { to: "/dashboard",             icon: LayoutDashboard, label: "Tableau de bord" },
+    { to: "/dashboard/actualites",     icon: Newspaper,       label: "Actualités" }, // ← ajouter
   { to: "/dashboard/schedule",    icon: Calendar,        label: "Emploi du temps" },
   { to: "/dashboard/courses",     icon: BookOpen,        label: "Cours" },
   { to: "/dashboard/materials",   icon: FolderOpen,      label: "Supports" },
@@ -17,6 +18,7 @@ const studentLinks = [
 
 const teacherLinks = [
   { to: "/dashboard",             icon: LayoutDashboard, label: "Tableau de bord" },
+  { to: "/dashboard/actualites",     icon: Newspaper,       label: "Actualités" }, // ← ajouter,
   { to: "/dashboard/schedule",    icon: Calendar,        label: "Emploi du temps" },
   { to: "/dashboard/courses",     icon: BookOpen,        label: "Mes cours" },
   { to: "/dashboard/materials",   icon: FolderOpen,      label: "Supports" },
@@ -27,6 +29,7 @@ const teacherLinks = [
 
 const adminLinks = [
   { to: "/dashboard",             icon: LayoutDashboard, label: "Tableau de bord" },
+  { to: "/dashboard/actualites",     icon: Newspaper,       label: "Actualités" }, // ← ajouter
   { to: "/dashboard/users",       icon: Users,           label: "Utilisateurs" },
   { to: "/dashboard/approvals",   icon: UserCheck,       label: "Demandes" },
   { to: "/dashboard/filieres",    icon: Building2,       label: "Filières" },

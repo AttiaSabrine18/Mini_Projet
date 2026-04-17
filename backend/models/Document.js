@@ -16,4 +16,7 @@ module.exports = (sequelize) => sequelize.define('Document', {
   enseignantId: { type: DataTypes.INTEGER, allowNull: true },
   etudiantId: { type: DataTypes.INTEGER, allowNull: true },
   deposePar: { type: DataTypes.INTEGER, allowNull: true },
+groupe: { type: DataTypes.STRING(100), allowNull: true },
+niveau:    { type: DataTypes.STRING(5),  allowNull: true },
+filiereId: { type: DataTypes.INTEGER,    allowNull: true },
 }, { tableName: 'documents', timestamps: false });

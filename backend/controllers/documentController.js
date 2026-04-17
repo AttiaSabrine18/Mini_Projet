@@ -1,6 +1,6 @@
 'use strict';
 
-const db                 = require('../models');
+const db = require('../models');
 const { success, error } = require('../utils/response');
 
 // POST /api/documents/upload
@@ -39,27 +39,56 @@ async function uploaderDocument(req, res) {
     }
 
     // Créer le document en BDD
+    // Si TOUS → sauvegarder tous les groupes réels
+    let groupeValue = req.body.groupe || null;
+    if (req.body.groupe === 'TOUS' && req.body.filiereId && req.body.niveau) {
+      try {
+        const promotions = await db.Promotion.findAll({
+          where: { estActive: true, niveau: req.body.niveau },
+          include: [{
+            model: db.Specialite,
+            as: 'specialite',
+            required: true,
+            where: { filiereId: req.body.filiereId },
+          }],
+          attributes: ['groupes'],
+        });
+        const groupesSet = new Set();
+        promotions.forEach(p => {
+          if (p.groupes) {
+            try { JSON.parse(p.groupes).forEach(g => groupesSet.add(g)); }
+            catch { p.groupes.split(',').map(g => g.trim()).forEach(g => groupesSet.add(g)); }
+          }
+        });
+        groupeValue = JSON.stringify([...groupesSet]); // ex: '["G1","G2","G3","G4"]'
+      } catch { groupeValue = 'TOUS'; }
+    }
+
+    // Créer le document en BDD
     const document = await db.Document.create({
       titre,
       type,
-      format:       'pdf',
-      taille:       req.file.size,
-      url:          req.file.path,
-      dateDepot:    new Date(),
+      format: 'pdf',
+      taille: req.file.size,
+      url: req.file.path,
+      dateDepot: new Date(),
       enseignantId: enseignant.id,
-      coursId:      parseInt(coursId),
-      moduleId:     moduleId ? parseInt(moduleId) : null,
-      deposePar:    req.utilisateur.id,
+      coursId: parseInt(coursId),
+      moduleId: moduleId ? parseInt(moduleId) : null,
+      deposePar: req.utilisateur.id,
+      groupe: groupeValue,
+      niveau: req.body.niveau || null,
+      filiereId: req.body.filiereId ? parseInt(req.body.filiereId) : null,
     });
 
     return success(res, {
-      id:        document.id,
-      titre:     document.titre,
-      type:      document.type,
-      taille:    document.taille,
-      url:       document.url,
+      id: document.id,
+      titre: document.titre,
+      type: document.type,
+      taille: document.taille,
+      url: document.url,
       dateDepot: document.dateDepot,
-      cours:     { id: cours.id, nom: cours.nom, code: cours.code },
+      cours: { id: cours.id, nom: cours.nom, code: cours.code },
     }, 'Document uploadé avec succès.', 201);
 
   } catch (err) {
@@ -73,7 +102,6 @@ async function getDocumentsByCours(req, res) {
   try {
     const { coursId } = req.params;
 
-    // Vérifier que le cours existe
     const cours = await db.Cours.findOne({
       where: { id: coursId },
       include: [
@@ -88,9 +116,7 @@ async function getDocumentsByCours(req, res) {
                 {
                   model: db.Specialite,
                   as: 'specialite',
-                  include: [
-                    { model: db.Filiere, as: 'filiere' }
-                  ]
+                  include: [{ model: db.Filiere, as: 'filiere' }]
                 }
               ]
             }
@@ -101,23 +127,47 @@ async function getDocumentsByCours(req, res) {
 
     if (!cours) return error(res, 'Cours introuvable.', 404);
 
-    // Si c'est un étudiant → vérifier qu'il appartient à la bonne filière
     if (req.utilisateur.typeUtilisateur === 'ETUDIANT') {
       const etudiant = await db.Etudiant.findOne({
         where: { utilisateurId: req.utilisateur.id },
       });
-
       if (!etudiant) return error(res, 'Profil étudiant introuvable.', 404);
 
-      // Récupérer la filière du cours
+      // Vérifier filière
       const filiereIdCours = cours.programme?.promotion?.specialite?.filiereId;
-
       if (!filiereIdCours || etudiant.filiereId !== filiereIdCours) {
         return error(res, 'Accès refusé. Ce cours n\'appartient pas à votre filière.', 403);
       }
+
+      // Récupérer tous les documents du cours
+      const tousDocuments = await db.Document.findAll({
+        where: { coursId },
+        order: [['dateDepot', 'DESC']],
+      });
+
+      // Filtrer par groupe de l'étudiant
+      const groupeEtudiant = etudiant.groupe; // ex: "G1"
+
+      const documentsFiltres = tousDocuments.filter(doc => {
+        if (!doc.groupe) return true; // pas de groupe → visible par tous
+
+        try {
+          const groupes = JSON.parse(doc.groupe);
+          if (Array.isArray(groupes)) {
+            // ["G1","G2","G3","G4"] → visible si groupeEtudiant est dedans
+            return groupes.includes(groupeEtudiant);
+          }
+          // "G1" → visible si correspond
+          return doc.groupe === groupeEtudiant;
+        } catch {
+          return doc.groupe === groupeEtudiant;
+        }
+      });
+
+      return success(res, documentsFiltres, `${documentsFiltres.length} document(s) trouvé(s).`);
     }
 
-    // Récupérer les documents
+    // Enseignant → voir tous les documents
     const documents = await db.Document.findAll({
       where: { coursId },
       order: [['dateDepot', 'DESC']],
@@ -234,6 +284,224 @@ async function telechargerDocument(req, res) {
   }
 }
 
+// GET /api/documents/mes-cours-liste
+async function getMesCoursListe(req, res) {
+  try {
+    const enseignant = await db.Enseignant.findOne({
+      where: { utilisateurId: req.utilisateur.id },
+    });
+    if (!enseignant) return error(res, 'Enseignant introuvable.', 404);
+
+    const cours = await db.Cours.findAll({
+      where: { enseignantPrincipalId: enseignant.id },
+      attributes: ['id', 'nom', 'code'],
+      order: [['nom', 'ASC']],
+    });
+
+    return success(res, cours, `${cours.length} cours trouvé(s).`);
+  } catch (err) {
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+// GET /api/documents/cours-filiere
+async function getCoursFiliere(req, res) {
+  try {
+    const etudiant = await db.Etudiant.findOne({
+      where: { utilisateurId: req.utilisateur.id },
+    });
+    if (!etudiant) return error(res, 'Profil étudiant introuvable.', 404);
+
+    const cours = await db.Cours.findAll({
+      attributes: ['id', 'nom', 'code', 'description', 'credits', 'coefficient'],
+      include: [
+        {
+          model: db.Programme,
+          as: 'programme',
+          attributes: ['id'],
+          required: true,
+          include: [
+            {
+              model: db.Promotion,
+              as: 'promotion',
+              attributes: ['id'],
+              required: true,
+              include: [
+                {
+                  model: db.Specialite,
+                  as: 'specialite',
+                  attributes: ['id', 'filiereId'],
+                  required: true,
+                  where: { filiereId: etudiant.filiereId },
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      order: [['nom', 'ASC']],
+    });
+
+    return success(res, cours, `${cours.length} cours trouvé(s).`);
+  } catch (err) {
+    console.error('Erreur getCoursFiliere:', err.message);
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+
+// GET /api/documents/groupes-par-filiere/:filiereId?niveau=L3
+async function getGroupesByFiliere(req, res) {
+  try {
+    const { filiereId } = req.params;
+    const { niveau } = req.query; // optionnel
+
+    // Construire le filtre
+    const wherePromotion = { estActive: true };
+    if (niveau) wherePromotion.niveau = niveau;
+
+    const promotions = await db.Promotion.findAll({
+      where: wherePromotion,
+      include: [
+        {
+          model: db.Specialite,
+          as: 'specialite',
+          attributes: ['id'],
+          required: true,
+          where: { filiereId },
+        }
+      ],
+      attributes: ['id', 'code', 'niveau', 'anneeUniversitaire', 'groupes'],
+    });
+
+    // Extraire groupes uniques
+    const groupesSet = new Set();
+    promotions.forEach(p => {
+      if (p.groupes) {
+        try {
+          JSON.parse(p.groupes).forEach(g => groupesSet.add(g));
+        } catch {
+          p.groupes.split(',').map(g => g.trim()).forEach(g => groupesSet.add(g));
+        }
+      }
+    });
+
+    return success(res, {
+      promotions: promotions.map(p => ({
+        id: p.id,
+        code: p.code,
+        niveau: p.niveau,
+        anneeUniversitaire: p.anneeUniversitaire,
+      })),
+      groupes: [...groupesSet],
+    }, 'Groupes récupérés.');
+
+  } catch (err) {
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+
+// GET /api/documents/cours-par-filiere/:filiereId
+async function getCoursByFiliere(req, res) {
+  try {
+    const enseignant = await db.Enseignant.findOne({
+      where: { utilisateurId: req.utilisateur.id },
+    });
+    if (!enseignant) return error(res, 'Enseignant introuvable.', 404);
+
+    const cours = await db.Cours.findAll({
+      where: { enseignantPrincipalId: enseignant.id },
+      attributes: ['id', 'nom', 'code'],
+      include: [
+        {
+          model: db.Programme,
+          as: 'programme',
+          attributes: ['id'],
+          required: true,
+          include: [
+            {
+              model: db.Promotion,
+              as: 'promotion',
+              attributes: ['id'],
+              required: true,
+              include: [
+                {
+                  model: db.Specialite,
+                  as: 'specialite',
+                  attributes: ['id'],
+                  required: true,
+                  where: { filiereId: req.params.filiereId },
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      order: [['nom', 'ASC']],
+    });
+
+    return success(res, cours.map(c => ({
+      id: c.id,
+      nom: c.nom,
+      code: c.code,
+    })), `${cours.length} cours trouvé(s).`);
+
+  } catch (err) {
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+// GET /api/documents/mes-filieres
+async function getMesFilieres(req, res) {
+  try {
+    const enseignant = await db.Enseignant.findOne({
+      where: { utilisateurId: req.utilisateur.id },
+    });
+    if (!enseignant) return error(res, 'Enseignant introuvable.', 404);
+
+    const cours = await db.Cours.findAll({
+      where: { enseignantPrincipalId: enseignant.id },
+      include: [
+        {
+          model: db.Programme,
+          as: 'programme',
+          attributes: ['id'],
+          required: true,
+          include: [
+            {
+              model: db.Promotion,
+              as: 'promotion',
+              attributes: ['id'],
+              required: true,
+              include: [
+                {
+                  model: db.Specialite,
+                  as: 'specialite',
+                  attributes: ['id', 'filiereId'],
+                  required: true,
+                  include: [
+                    { model: db.Filiere, as: 'filiere', attributes: ['id', 'nom', 'code'] }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    });
+
+    // Extraire filières uniques
+    const filieresMap = new Map();
+    cours.forEach(c => {
+      const filiere = c.programme?.promotion?.specialite?.filiere;
+      if (filiere && !filieresMap.has(filiere.id)) {
+        filieresMap.set(filiere.id, filiere);
+      }
+    });
+
+    return success(res, [...filieresMap.values()], 'Filières récupérées.');
+  } catch (err) {
+    return error(res, err.message || 'Erreur.', 500);
+  }
+}
+
 // ← remplace l'ancien module.exports par celui-ci
 module.exports = {
   uploaderDocument,
@@ -241,5 +509,11 @@ module.exports = {
   getMesDocuments,
   supprimerDocument,
   telechargerDocument,
+  getMesCoursListe,
+  getCoursFiliere,
+  getGroupesByFiliere,
+  getCoursByFiliere,
+  getMesFilieres
+
 };
 

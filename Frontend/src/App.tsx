@@ -20,8 +20,23 @@ import UsersPage from './pages/dashboard/UsersPage';
 import TeacherDashboard from './pages/dashboard/TeacherDashboard';
 import AdminDashboard from './pages/dashboard/AdminDashboard';
 import NotFound from './pages/NotFound';
-
+import ActualitesPage from './pages/dashboard/ActualitesPage';
+import ActualitesAdminPage from './pages/dashboard/ActualitesAdminPage';
 export default function App() {
+  // Créer un composant wrapper qui route selon le rôle
+function ActualitesRouter() {
+  let utilisateur: any = null;
+  try {
+    const stored = localStorage.getItem('utilisateur');
+    utilisateur = stored ? JSON.parse(stored) : null;
+  } catch { /* ignorer */ }
+
+  const role = utilisateur?.typeUtilisateur ?? 'ETUDIANT';
+
+  return role === 'ADMINISTRATEUR'
+    ? <ActualitesAdminPage />
+    : <ActualitesPage />;
+}
   return (
     <TooltipProvider>
       <Toaster />
@@ -33,6 +48,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardHome />} />
             <Route path="schedule" element={<SchedulePage />} />
+<Route path="actualites" element={<ActualitesRouter />}/>
             <Route path="courses" element={<CoursesPage />} />
             <Route path="materials" element={<MaterialsPage />} />
             <Route path="forums" element={<ForumsPage />} />
@@ -57,6 +73,7 @@ export default function App() {
           <Route path="/dashboard/admin" element={<DashboardLayout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="actualites" element={<ActualitesAdminPage />} />
             <Route path="approvals" element={<ApprovalsPage />} />
             <Route path="filieres" element={<FiliersPage />} />
             <Route path="stats" element={<StatsPage />} />

@@ -26,6 +26,7 @@ const Message        = require('./Message')(sequelize);
 const OAuthClient    = require('./OAuthClient')(sequelize);
 const OAuthToken     = require('./OAuthToken')(sequelize);
 const OAuthCode      = require('./OAuthCode')(sequelize);
+const Actualite      = require('./Actualite')(sequelize);
 
 // ─── Utilisateur associations ─────────────────────────────────────────────────
 Utilisateur.hasOne(Administrateur, { foreignKey: 'utilisateurId', as: 'administrateur', onDelete: 'CASCADE' });
@@ -172,6 +173,9 @@ OAuthCode.belongsTo(OAuthClient, { foreignKey: 'clientId', as: 'client' });
 OAuthClient.hasMany(OAuthToken, { foreignKey: 'clientId', as: 'tokens', onDelete: 'CASCADE' });
 OAuthToken.belongsTo(OAuthClient, { foreignKey: 'clientId', as: 'client' });
 
+Actualite.belongsTo(Administrateur, { foreignKey: 'adminId', as: 'admin' });
+Administrateur.hasMany(Actualite,   { foreignKey: 'adminId', as: 'actualites' });
+
 module.exports = {
   sequelize,
   Utilisateur,
@@ -197,4 +201,5 @@ module.exports = {
   OAuthClient,
   OAuthToken,
   OAuthCode,
+  Actualite,
 };

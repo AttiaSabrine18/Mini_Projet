@@ -4,6 +4,8 @@ const express      = require('express');
 const cors         = require('cors');
 const helmet       = require('helmet');
 const cookieParser = require('cookie-parser');
+const actualiteRoutes = require('./routes/actualiteRoutes');
+
 require('dotenv').config();
 
 const app = express();
@@ -46,6 +48,8 @@ app.use('/api/forum', require('./routes/forum.routes'));
 
 
 app.use('/api/presences', require('./routes/presenceRoutes')); 
+
+app.use('/api/actualites', actualiteRoutes);
 
 // (Ajouter les autres routes ici au fur et à mesure)
 // app.use('/api/etudiants',   require('./routes/etudiant.routes'));
