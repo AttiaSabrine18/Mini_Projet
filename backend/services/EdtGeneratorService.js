@@ -3,12 +3,9 @@
 const db   = require('../models');
 const algo = require('./algorithmeGenetique');
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  POST /api/edt/generer — Générer un EDT automatiquement
-// ══════════════════════════════════════════════════════════════════════════════
 async function genererEDT({ promotionId, semaine, anneeUniversitaire }) {
 
-  // 1. Récupérer la promotion + ses modules
+  // 1. Récupérer la promotion
   const promotion = await db.Promotion.findByPk(promotionId, {
     include: [{
       model:   db.Specialite,
@@ -18,7 +15,7 @@ async function genererEDT({ promotionId, semaine, anneeUniversitaire }) {
   });
   if (!promotion) throw { statusCode: 404, message: 'Promotion introuvable.' };
 
-  // 2. Récupérer tous les modules à planifier pour cette promotion
+  // 2. Récupérer les modules
   const modules = await db.Module.findAll({
     include: [{
       model:    db.Cours,
@@ -38,26 +35,21 @@ async function genererEDT({ promotionId, semaine, anneeUniversitaire }) {
     }],
   });
 
-  if (!modules.length) {
-    throw { statusCode: 404, message: 'Aucun module trouvé pour cette promotion.' };
-  }
+  if (!modules.length) throw { statusCode: 404, message: 'Aucun module trouvé pour cette promotion.' };
 
-  // 3. Récupérer toutes les salles disponibles
+  // 3. Récupérer les salles
   const salles = await db.Salle.findAll({
-    where: { estActive: true },
+    where:      { estActive: true },
     attributes: ['id', 'nom', 'code', 'capacite', 'type'],
   });
-
   if (!salles.length) throw { statusCode: 404, message: 'Aucune salle disponible.' };
 
-  // 4. Construire la liste des séances requises
-  // Chaque module génère N séances selon son volume horaire (1 séance = 2h)
+  // 4. Construire les séances requises
   const seancesRequises = [];
   const groupes = promotion.groupes ? JSON.parse(promotion.groupes) : ['G1'];
 
   modules.forEach(module => {
-    const nbSeances = Math.ceil(module.volumeHoraire / 2); // 2h par séance
-
+    const nbSeances = Math.ceil((module.volumeHoraire || 2) / 2);
     groupes.forEach(groupe => {
       for (let i = 0; i < nbSeances; i++) {
         seancesRequises.push({
@@ -65,19 +57,19 @@ async function genererEDT({ promotionId, semaine, anneeUniversitaire }) {
           moduleId:     module.id,
           enseignantId: module.enseignantPrincipalId,
           groupe,
-          effectif:     Math.ceil(promotion.effectifReel / groupes.length) || 30,
+          effectif:     Math.ceil((promotion.effectifReel || 30) / groupes.length),
           type:         mapTypeModule(module.type),
         });
       }
     });
   });
 
-  console.log(`🎯 ${seancesRequises.length} séances à planifier pour ${groupes.length} groupe(s)`);
+  console.log(`🎯 ${seancesRequises.length} séances à planifier`);
 
-  // 5. Lancer l'algorithme génétique
+  // 5. Algorithme génétique
   const resultat = algo.lancerAlgoGenetique(seancesRequises, salles);
 
-  // 6. Créer l'emploi du temps en BDD
+  // 6. Créer l'emploi du temps
   const emploiTemps = await db.EmploiTemps.create({
     code:               `EDT-AUTO-${promotionId}-S${semaine}-${Date.now()}`,
     semaine,
@@ -88,65 +80,95 @@ async function genererEDT({ promotionId, semaine, anneeUniversitaire }) {
     promotionId,
   });
 
-  // 7. Sauvegarder les sessions générées
+  // 7. Sauvegarder les sessions
   const sessionsData = algo.formaterPourBDD(resultat.edt, emploiTemps.id);
-  const sessions     = await db.Session.bulkCreate(sessionsData);
+  await db.Session.bulkCreate(sessionsData);
 
-  console.log(`✅ ${sessions.length} séances créées dans la BDD`);
-
-  return {
-    emploiTempsId:   emploiTemps.id,
-    promotion:       promotion.code,
-    semaine,
-    score:           resultat.score,
-    qualite:         resultat.qualite,
-    nbSeances:       sessions.length,
-    conflitsResiduels: resultat.conflits,
-    edt:             formaterEDTParJour(resultat.edt, salles, modules),
-  };
-}
-
-// ─── Helper : formater l'EDT par jour pour la réponse ────────────────────────
-function formaterEDTParJour(edt, salles, modules) {
-  const sallesMap  = Object.fromEntries(salles.map(s => [s.id, s]));
-  const modulesMap = Object.fromEntries(modules.map(m => [m.id, m]));
-  const parJour    = {};
-
-  algo.JOURS.forEach(jour => { parJour[jour] = []; });
-
-  edt.forEach(gene => {
-    const salle  = sallesMap[gene.salleId];
-    const module = modulesMap[gene.moduleId];
-
-    parJour[gene.jour].push({
-      groupe:      gene.groupe,
-      creneau:     `${gene.creneau} → ${getHeureFin(gene.creneau)}`,
-      type:        gene.type,
-      cours:       module?.cours?.nom || 'Inconnu',
-      salle:       salle ? `${salle.nom} (cap. ${salle.capacite})` : 'Inconnue',
-      enseignantId: gene.enseignantId,
-    });
-
-    // Trier par créneau
-    parJour[gene.jour].sort((a, b) => a.creneau.localeCompare(b.creneau));
+  // 8. Re-fetch avec toutes les associations pour le frontend
+  const sessionsCompletes = await db.Session.findAll({
+    where:   { emploiTempsId: emploiTemps.id },
+    include: [
+      {
+        model:      db.Cours,
+        as:         'cours',
+        attributes: ['id', 'nom', 'code'],
+        required:   false,
+      },
+      {
+        model:      db.Module,
+        as:         'module',
+        attributes: ['id', 'nom', 'type'],
+        required:   false,
+      },
+      {
+        model:      db.Salle,
+        as:         'salle',
+        attributes: ['id', 'nom', 'batiment', 'capacite'],
+        required:   false,
+      },
+      {
+        model:      db.Enseignant,
+        as:         'enseignant',
+        attributes: ['id', 'grade'],
+        required:   false,
+        include: [{
+          model:      db.Utilisateur,
+          as:         'utilisateur',
+          attributes: ['nom', 'prenom'],
+        }],
+      },
+      {
+        model:      db.EmploiTemps,
+        as:         'emploiTemps',
+        attributes: ['semaine', 'anneeUniversitaire', 'groupe'],
+      },
+    ],
+    order: [['date', 'ASC'], ['heureDebut', 'ASC']],
   });
 
-  return parJour;
+  // 9. Formater pour le frontend
+  const sessionsFormatees = sessionsCompletes.map(s => ({
+    id:         s.id,
+    code:       s.code,
+    type:       s.type,
+    date:       s.date,
+    heureDebut: s.heureDebut,
+    heureFin:   s.heureFin,
+    groupe:     s.groupe,
+    estAnnulee: s.estAnnulee,
+    cours:      s.cours    ? { nom: s.cours.nom, code: s.cours.code }                                   : null,
+    module:     s.module   ? { nom: s.module.nom, type: s.module.type }                                  : null,
+    salle:      s.salle    ? { nom: s.salle.nom, batiment: s.salle.batiment || '', capacite: s.salle.capacite } : null,
+    enseignant: s.enseignant?.utilisateur
+      ? { nom: s.enseignant.utilisateur.nom, prenom: s.enseignant.utilisateur.prenom, grade: s.enseignant.grade }
+      : null,
+    emploiTemps: s.emploiTemps
+      ? { semaine: s.emploiTemps.semaine, annee: s.emploiTemps.anneeUniversitaire, groupe: s.emploiTemps.groupe }
+      : null,
+  }));
+
+  console.log(`✅ ${sessionsFormatees.length} séances générées`);
+
+  return {
+    emploiTempsId: emploiTemps.id,
+    promotion:     promotion.code,
+    semaine,
+    score:         resultat.score,
+    qualite:       resultat.qualite,
+    nbSeances:     sessionsFormatees.length,
+    conflits:      resultat.conflits,   // ← consistent name
+    edt:           sessionsFormatees,   // ← flat array, not grouped by day
+  };
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function mapTypeModule(type) {
   const map = {
-    'COURS_MAGISTRAL':  'COURS_MAGISTRAL',
-    'TRAVAUX_DIRIGES':  'TRAVAUX_DIRIGES',
-    'TRAVAUX_PRATIQUES':'TRAVAUX_PRATIQUES',
+    COURS_MAGISTRAL:   'COURS_MAGISTRAL',
+    TRAVAUX_DIRIGES:   'TRAVAUX_DIRIGES',
+    TRAVAUX_PRATIQUES: 'TRAVAUX_PRATIQUES',
   };
   return map[type] || 'COURS_MAGISTRAL';
-}
-
-function getHeureFin(heureDebut) {
-  const map = { '08:00':'10:00', '10:00':'12:00', '12:00':'14:00', '14:00':'16:00', '16:00':'18:00' };
-  return map[heureDebut] || '10:00';
 }
 
 function getDateLundi() {
