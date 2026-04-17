@@ -44,10 +44,14 @@ app.use('/api/documents', require('./routes/documentRoutes'));
 
 
 
-app.use('/api/forum', require('./routes/forum.routes'));
 
+app.use('/api/forum', require('./routes/forum.routes'));
+app.use('/api/cours', require('./routes/cours.routes'));
 
 app.use('/api/presences', require('./routes/presenceRoutes')); 
+app.use('/api/promotions', require('./routes/promotions.routes'));
+app.use('/api/inscriptions', require('./routes/inscriptionRoutes'));
+app.use('/api/admin/gestion', require('./routes/adminGestion.routes'));
 
 app.use('/api/actualites', actualiteRoutes);
 
