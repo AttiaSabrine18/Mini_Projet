@@ -3,16 +3,36 @@
 const db = require('../models');
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  POST /forum — Créer un thread (Enseignant seulement) US22
+//  Shared include: Cours → Programme → Promotion
+// ─────────────────────────────────────────────────────────────────────────────
+const coursInclude = {
+  model:      db.Cours,
+  as:         'cours',
+  required:   false,
+  attributes: ['id', 'nom', 'code'],
+  include: [{
+    model:      db.Programme,
+    as:         'programme',
+    required:   false,
+    attributes: ['id'],
+    include: [{
+      model:      db.Promotion,
+      as:         'promotion',
+      required:   false,
+      attributes: ['id', 'niveau', 'anneeUniversitaire'],
+    }],
+  }],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  POST /forum — Créer un thread (Enseignant seulement)
 // ─────────────────────────────────────────────────────────────────────────────
 async function creerThread(data, utilisateurId) {
-  // Récupérer l'enseignant
   const enseignant = await db.Enseignant.findOne({ where: { utilisateurId } });
   if (!enseignant) throw { statusCode: 403, message: 'Profil enseignant introuvable.' };
 
   const { titre, description, type, coursId, estPrive } = data;
 
-  // Vérifier que le cours existe si fourni
   if (coursId) {
     const cours = await db.Cours.findByPk(coursId);
     if (!cours) throw { statusCode: 404, message: 'Cours introuvable.' };
@@ -20,17 +40,16 @@ async function creerThread(data, utilisateurId) {
 
   const forum = await db.Forum.create({
     titre,
-    description:   description || null,
-    type:          type        || 'GENERAL',
-    estPrive:      estPrive    !== undefined ? estPrive : false,
-    dateCreation:  new Date(),
-    nbMessages:    0,
-    coursId:       coursId    || null,
-    createdBy:     enseignant.id,
+    description:  description || null,
+    type:         type        || 'GENERAL',
+    estPrive:     estPrive !== undefined ? estPrive : false,
+    dateCreation: new Date(),
+    nbMessages:   0,
+    coursId:      coursId || null,
+    createdBy:    enseignant.id,
   });
 
-  // Récupérer avec les associations pour la réponse
-  const forumComplet = await db.Forum.findByPk(forum.id, {
+  return db.Forum.findByPk(forum.id, {
     include: [
       {
         model:      db.Enseignant,
@@ -38,16 +57,9 @@ async function creerThread(data, utilisateurId) {
         attributes: ['id', 'matricule', 'grade'],
         include:    [{ model: db.Utilisateur, as: 'utilisateur', attributes: ['nom', 'prenom'] }],
       },
-      {
-        model:      db.Cours,
-        as:         'cours',
-        attributes: ['id', 'nom', 'code'],
-        required:   false,
-      },
+      coursInclude,
     ],
   });
-
-  return forumComplet;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,7 +70,7 @@ async function getTousLesThreads({ page = 1, limit = 20, type, coursId } = {}) {
   if (type)    where.type    = type.toUpperCase();
   if (coursId) where.coursId = parseInt(coursId);
 
-  const offset = (page - 1) * limit;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
 
   const { count, rows } = await db.Forum.findAndCountAll({
     where,
@@ -69,86 +81,132 @@ async function getTousLesThreads({ page = 1, limit = 20, type, coursId } = {}) {
         attributes: ['id', 'matricule'],
         include:    [{ model: db.Utilisateur, as: 'utilisateur', attributes: ['nom', 'prenom'] }],
       },
-      {
-        model:      db.Cours,
-        as:         'cours',
-        attributes: ['id', 'nom', 'code'],
-        required:   false,
-      },
+      coursInclude,
     ],
-    order:  [['dateCreation', 'DESC']],
-    limit:  parseInt(limit),
+    order:    [['dateCreation', 'DESC']],
+    limit:    parseInt(limit),
     offset,
+    distinct: true,
   });
 
   return {
     total:      count,
     page:       parseInt(page),
-    totalPages: Math.ceil(count / limit),
+    totalPages: Math.ceil(count / parseInt(limit)),
     threads:    rows,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  GET /forum/:id — Détail d'un thread avec tous ses messages (populate)
+//  GET /forum/:id — Thread + toutes ses réponses
 // ─────────────────────────────────────────────────────────────────────────────
 async function getThreadParId(forumId) {
+  const messageIncludes = [
+    {
+      model:      db.Utilisateur,
+      as:         'auteur',
+      attributes: ['id', 'nom', 'prenom', 'typeUtilisateur', 'photoProfil'],
+    },
+    {
+      model:    db.Message,
+      as:       'replies',
+      required: false,
+      include: [{
+        model:      db.Utilisateur,
+        as:         'auteur',
+        attributes: ['id', 'nom', 'prenom', 'typeUtilisateur', 'photoProfil'],
+      }],
+    },
+  ];
+
+  if (db.Attachment) {
+    messageIncludes.push({
+      model:    db.Attachment,
+      as:       'attachments',
+      required: false,
+    });
+  }
+
   const forum = await db.Forum.findByPk(forumId, {
     include: [
-      // Créateur du forum
       {
         model:      db.Enseignant,
         as:         'createur',
-        attributes: ['id', 'matricule', 'grade'],
+        attributes: ['id', 'utilisateurId', 'matricule', 'grade'],
         include:    [{ model: db.Utilisateur, as: 'utilisateur', attributes: ['nom', 'prenom', 'photoProfil'] }],
       },
-      // Cours associé
+      coursInclude,
       {
-        model:      db.Cours,
-        as:         'cours',
-        attributes: ['id', 'nom', 'code'],
-        required:   false,
-      },
-      // Tous les messages avec auteur + réponses imbriquées
-      {
-        model:   db.Message,
-        as:      'messages',
-        where:   { parentId: null },  // messages racines seulement
+        model:    db.Message,
+        as:       'messages',
+        where:    { parentId: null },
         required: false,
-        include: [
-          // Auteur du message
-          {
-            model:      db.Utilisateur,
-            as:         'auteur',
-            attributes: ['id', 'nom', 'prenom', 'typeUtilisateur', 'photoProfil'],
-          },
-          // Réponses au message (1 niveau)
-          {
-            model:   db.Message,
-            as:      'replies',
-            required: false,
-            include: [{
-              model:      db.Utilisateur,
-              as:         'auteur',
-              attributes: ['id', 'nom', 'prenom', 'typeUtilisateur', 'photoProfil'],
-            }],
-            order: [['datePublication', 'ASC']],
-          },
-        ],
-        order: [['datePublication', 'ASC']],
+        include:  messageIncludes,
+        order:    [['datePublication', 'ASC']],
       },
     ],
   });
 
   if (!forum) throw { statusCode: 404, message: 'Thread introuvable.' };
 
-  return forum;
+  return {
+    id:           forum.id,
+    titre:        forum.titre,
+    description:  forum.description,
+    type:         forum.type,
+    estPrive:     forum.estPrive,
+    dateCreation: forum.dateCreation,
+    nbReponses:   forum.nbMessages,
+    createur: forum.createur ? {
+      id:            forum.createur.id,
+      utilisateurId: forum.createur.utilisateurId,
+      nom:           forum.createur.utilisateur?.nom,
+      prenom:        forum.createur.utilisateur?.prenom,
+      matricule:     forum.createur.matricule,
+      grade:         forum.createur.grade,
+    } : null,
+    cours: forum.cours
+      ? { id: forum.cours.id, nom: forum.cours.nom, code: forum.cours.code }
+      : null,
+    reponses: (forum.messages || []).map(msg => ({
+      id:              msg.id,
+      contenu:         msg.contenu,
+      datePublication: msg.datePublication,
+      auteurId:        msg.auteurId,
+      nbLikes:         msg.nbLikes || 0,
+      attachments:     (msg.attachments || []).map(a => ({
+        id:       a.id,
+        filename: a.filename,
+        filepath: a.filepath,
+        mimetype: a.mimetype,
+        filesize: a.filesize,
+      })),
+      auteur: {
+        id:              msg.auteur?.id,
+        nom:             msg.auteur?.nom,
+        prenom:          msg.auteur?.prenom,
+        typeUtilisateur: msg.auteur?.typeUtilisateur,
+      },
+      sousReponses: (msg.replies || []).map(r => ({
+        id:              r.id,
+        contenu:         r.contenu,
+        datePublication: r.datePublication,
+        auteurId:        r.auteurId,
+        auteur: {
+          id:              r.auteur?.id,
+          nom:             r.auteur?.nom,
+          prenom:          r.auteur?.prenom,
+          typeUtilisateur: r.auteur?.typeUtilisateur,
+        },
+      })),
+    })),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  POST /forum/:id/messages — Répondre à un thread (tous les rôles)
+//  POST /forum/:id/reponse
 // ─────────────────────────────────────────────────────────────────────────────
-async function ajouterMessage(forumId, contenu, auteurId, parentId = null) {
+async function ajouterReponse(forumId, contenu, auteurId, parentId = null, files = []) {
   const forum = await db.Forum.findByPk(forumId);
   if (!forum) throw { statusCode: 404, message: 'Thread introuvable.' };
 
@@ -158,26 +216,62 @@ async function ajouterMessage(forumId, contenu, auteurId, parentId = null) {
     nbLikes:         0,
     forumId:         parseInt(forumId),
     auteurId,
-    parentId:        parentId || null,
+    parentId:        parentId ? parseInt(parentId) : null,
   });
 
-  // Incrémenter le compteur de messages
+  let savedAttachments = [];
+  if (db.Attachment && files && files.length > 0) {
+    savedAttachments = await db.Attachment.bulkCreate(
+      files.map(file => ({
+        filename:  file.originalname,
+        filepath:  file.filename,
+        mimetype:  file.mimetype,
+        filesize:  file.size,
+        messageId: message.id,
+      }))
+    );
+  }
+
   await forum.update({ nbMessages: forum.nbMessages + 1 });
 
-  // Récupérer avec auteur pour la réponse
-  const messageComplet = await db.Message.findByPk(message.id, {
-    include: [{
-      model:      db.Utilisateur,
-      as:         'auteur',
-      attributes: ['id', 'nom', 'prenom', 'typeUtilisateur'],
-    }],
-  });
+  const fetchIncludes = [{
+    model:      db.Utilisateur,
+    as:         'auteur',
+    attributes: ['id', 'nom', 'prenom', 'typeUtilisateur'],
+  }];
+  if (db.Attachment) {
+    fetchIncludes.push({ model: db.Attachment, as: 'attachments', required: false });
+  }
 
-  return messageComplet;
+  const reponseComplete = await db.Message.findByPk(message.id, { include: fetchIncludes });
+
+  return {
+    id:              reponseComplete.id,
+    contenu:         reponseComplete.contenu,
+    datePublication: reponseComplete.datePublication,
+    parentId:        reponseComplete.parentId,
+    auteurId:        reponseComplete.auteurId,
+    nbLikes:         reponseComplete.nbLikes || 0,
+    attachments:     (reponseComplete.attachments || savedAttachments).map(a => ({
+      id:       a.id,
+      filename: a.filename,
+      filepath: a.filepath,
+      mimetype: a.mimetype,
+      filesize: a.filesize,
+    })),
+    auteur: {
+      id:              reponseComplete.auteur?.id,
+      nom:             reponseComplete.auteur?.nom,
+      prenom:          reponseComplete.auteur?.prenom,
+      typeUtilisateur: reponseComplete.auteur?.typeUtilisateur,
+    },
+  };
 }
 
+const ajouterMessage = ajouterReponse;
+
 // ─────────────────────────────────────────────────────────────────────────────
-//  DELETE /forum/:id — Supprimer un thread (créateur ou admin)
+//  DELETE /forum/:id
 // ─────────────────────────────────────────────────────────────────────────────
 async function supprimerThread(forumId, utilisateurId, typeUtilisateur) {
   const forum = await db.Forum.findByPk(forumId, {
@@ -186,8 +280,7 @@ async function supprimerThread(forumId, utilisateurId, typeUtilisateur) {
 
   if (!forum) throw { statusCode: 404, message: 'Thread introuvable.' };
 
-  // Vérifier que c'est le créateur ou un admin
-  const estAdmin = typeUtilisateur === 'ADMINISTRATEUR';
+  const estAdmin    = typeUtilisateur === 'ADMINISTRATEUR';
   const estCreateur = forum.createur?.utilisateurId === utilisateurId;
 
   if (!estAdmin && !estCreateur) {
@@ -202,6 +295,7 @@ module.exports = {
   creerThread,
   getTousLesThreads,
   getThreadParId,
+  ajouterReponse,
   ajouterMessage,
   supprimerThread,
 };
