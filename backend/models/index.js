@@ -3,6 +3,7 @@
 const sequelize = require('../config/database');
 
 // ─── Import Models ────────────────────────────────────────────────────────────
+const Attachment = require('./Attachment')(sequelize);
 const Utilisateur    = require('./Utilisateur')(sequelize);
 const Administrateur = require('./Administrateur')(sequelize);
 const Enseignant     = require('./Enseignant')(sequelize);
@@ -29,6 +30,8 @@ const OAuthCode      = require('./OAuthCode')(sequelize);
 const Actualite      = require('./Actualite')(sequelize);
 
 // ─── Utilisateur associations ─────────────────────────────────────────────────
+Message.hasMany(Attachment, { foreignKey: 'messageId', as: 'attachments' });
+Attachment.belongsTo(Message, { foreignKey: 'messageId', as: 'message' });
 Utilisateur.hasOne(Administrateur, { foreignKey: 'utilisateurId', as: 'administrateur', onDelete: 'CASCADE' });
 Administrateur.belongsTo(Utilisateur, { foreignKey: 'utilisateurId', as: 'utilisateur' });
 
@@ -172,12 +175,11 @@ OAuthCode.belongsTo(OAuthClient, { foreignKey: 'clientId', as: 'client' });
 
 OAuthClient.hasMany(OAuthToken, { foreignKey: 'clientId', as: 'tokens', onDelete: 'CASCADE' });
 OAuthToken.belongsTo(OAuthClient, { foreignKey: 'clientId', as: 'client' });
-
 Actualite.belongsTo(Administrateur, { foreignKey: 'adminId', as: 'admin' });
 Administrateur.hasMany(Actualite,   { foreignKey: 'adminId', as: 'actualites' });
-
 module.exports = {
   sequelize,
+  Attachment,
   Utilisateur,
   Administrateur,
   Enseignant,
@@ -201,5 +203,6 @@ module.exports = {
   OAuthClient,
   OAuthToken,
   OAuthCode,
-  Actualite,
+    Actualite,
+
 };
